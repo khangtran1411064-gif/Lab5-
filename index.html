@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Chuồng Trại - Smart Farm Dashboard</title>
+    <!-- Thư viện giao diện Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Thư viện vẽ biểu đồ Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+</head>
+<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+
+    <div class="container mx-auto p-6">
+        <!-- Tiêu đề -->
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">Hệ Thống Giám Sát & Điều Khiển Chuồng Trại Thông Minh</h1>
+            <p class="text-gray-600">Đề tài Khoa Học Kỹ Thuật - Realtime IoT Dashboard</p>
+        </header>
+
+        <!-- Thẻ hiển thị thông số hiện tại -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-red-500">
+                <h3 class="text-gray-500 text-sm font-semibold">NHIỆT ĐỘ</h3>
+                <p id="val-temp" class="text-3xl font-bold text-red-600">-- °C</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-500">
+                <h3 class="text-gray-500 text-sm font-semibold">ĐỘ ẨM</h3>
+                <p id="val-hum" class="text-3xl font-bold text-blue-600">-- %</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-yellow-500">
+                <h3 class="text-gray-500 text-sm font-semibold">NỒNG ĐỘ KHÍ NH3</h3>
+                <p id="val-nh3" class="text-3xl font-bold text-yellow-600">-- ppm</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500">
+                <h3 class="text-gray-500 text-sm font-semibold">TRẠNG THÁI QUẠT</h3>
+                <p id="val-fan" class="text-3xl font-bold text-green-600">-- / 3</p>
+            </div>
+        </div>
+
+        <!-- Phần điều khiển thủ công từ xa -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8 flex flex-wrap items-center justify-between">
+            <div>
+                <h2 class="text-xl font-bold text-gray-800">Bảng Điều Khiển Từ Xa</h2>
+                <p class="text-sm text-gray-500">Thay đổi chế độ hoặc bật/tắt thiết bị trực tiếp qua Web</p>
+            </div>
+            <div class="mt-4 md:mt-0 space-x-4">
+                <button onclick="lenhDieuKhien('tat_quat')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition">
+🛑 Tắt Quạt Khẩn Cấp
+                </button>
+                <button onclick="lenhDieuKhien('doi_che_do')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition">
+                    🔄 Đổi Chế Độ Auto/Manual
+                </button>
+            </div>
+        </div>
+
+        <!-- Biểu đồ trực quan -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Biểu Đồ Biến Động Thời Gian Thực</h2>
+            <div class="relative h-96">
+                <canvas id="sensorChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script cấu hình kết nối Firebase và vẽ biểu đồ -->
+    <script>
+        // Cấu hình Firebase Realtime Database của bạn
+        const firebaseConfig = {
+            databaseURL: "https://khkt-12266-default-rtdb.firebaseio.com"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // Cấu hình Biểu đồ Chart.js
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // Thời gian
+                datasets: [
+                    { label: 'Nhiệt độ (°C)', borderColor: 'rgb(239, 68, 68)', data: [], tension: 0.3 },
+                    { label: 'Độ ẩm (%)', borderColor: 'rgb(59, 130, 246)', data: [], tension: 0.3 },
+                    { label: 'NH3 (ppm)', borderColor: 'rgb(234, 179, 8)', data: [], tension: 0.3 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // Lắng nghe dữ liệu thay đổi từ Firebase theo thời gian thực
+        db.ref('cam_bien').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Cập nhật số liệu hiển thị lên thẻ HTML
+                document.getElementById('val-temp').innerText = data.nhiet_do + " °C";
+                document.getElementById('val-hum').innerText = data.do_am + " %";
+                document.getElementById('val-nh3').innerText = data.nh3 + " ppm";
+                document.getElementById('val-fan').innerText = data.quat_level + " / 3";
+
+                // Cập nhật biểu đồ
+                const timeString = new Date().toLocaleTimeString();
+                if (sensorChart.data.labels.length > 20) {
+                    sensorChart.data.labels.shift();
+                    sensorChart.data.datasets.forEach((dataset) => dataset.data.shift());
+                }
+                sensorChart.data.labels.push(timeString);
+                sensorChart.data.datasets[0].data.push(data.nhiet_do);
+                sensorChart.data.datasets[1].data.push(data.do_am);
+sensorChart.data.datasets[2].data.push(data.nh3);
+                sensorChart.update();
+            }
+        });
+
+        // Hàm gửi lệnh điều khiển trực tiếp lên nhánh /dieu_khien/lenh của Firebase để ESP32 đọc và thực thi
+        function lenhDieuKhien(hanhDong) {
+            db.ref('dieu_khien').set({
+                lenh: hanhDong,
+                thoi_gian: Date.now()
+            }).then(() => {
+                if (hanhDong === 'tat_quat') {
+                    alert("Đã gửi lệnh TẮT QUẠT khẩn cấp đến hệ thống!");
+                } else {
+                    alert("Đã gửi lệnh đổi chế độ Auto/Manual thành công!");
+                }
+            }).catch((error) => {
+                alert("Lỗi khi gửi lệnh: " + error);
+            });
+        }
+    </script>
+</body>
+</html>
